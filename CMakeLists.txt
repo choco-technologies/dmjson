@@ -2,6 +2,16 @@ cmake_minimum_required(VERSION 3.18)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Isolated SAL shim lets sanitizers and allocation-failure tests instrument the
+# actual implementation. Production modules always use the real DMOD SDK.
+option(DMJSON_NATIVE_TESTS_ONLY "Build offline host sanitizer tests only" OFF)
+if(DMJSON_NATIVE_TESTS_ONLY)
+    project(dmjson_native_tests LANGUAGES C)
+    enable_testing()
+    add_subdirectory(tests/native)
+    return()
+endif()
+
 if(NOT DEFINED DMOD_MODULE_VERSION)
     set(DMOD_MODULE_VERSION "0.1" CACHE STRING "DMOD module version")
 endif()
@@ -76,6 +86,9 @@ dmod_add_library(${DMOD_MODULE_NAME} ${DMOD_MODULE_VERSION}
     # List of source files - can include C and C++ files
     src/dmjson.c
 )
+
+target_compile_features(${DMOD_MODULE_NAME} PRIVATE c_std_11)
+target_compile_options(${DMOD_MODULE_NAME} PRIVATE -Wall -Wextra -Werror -Wvla -Werror=vla -fstack-usage)
 
 target_include_directories(${DMOD_MODULE_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

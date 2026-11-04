@@ -3,118 +3,135 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/choco-technologies/dmjson/actions/workflows/ci.yml/badge.svg)](https://github.com/choco-technologies/dmjson/actions/workflows/ci.yml)
 
-dmjson DMOD library module.
+JSON parsing, editing and generation for embedded DMOD applications, following
+`dmini`'s opaque-context and SAL allocation/file API pattern.
 
-## Description
-
-TODO: describe what this module does.
-
-## Building
-
-### Using CMake
-
-```bash
-mkdir -p build
-cd build
-cmake ..
-cmake --build .
-```
-
-CMake automatically uses an installed `dmod-dev` SDK. Without an SDK it fetches
-dmod's `develop` branch from GitHub. With the SDK installed, a self-contained
-module builds without a DMOD checkout or network access.
-
-Pass `-DDMOD_DIR=/path/to/local/dmod` to select a local checkout, even when the
-SDK is installed. The checkout needs its submodules: use `git clone --recursive`
-or run `git submodule update --init --recursive` in an existing checkout.
-To force the GitHub source build while an SDK is installed, pass
-`-DDMOD_USE_INSTALLED_SDK=OFF`. Use separate build directories when switching
-between source and installed SDK builds.
-
-For an SDK in a custom prefix, pass `-DCMAKE_PREFIX_PATH=/path/to/prefix`.
-Existing `DMOD_TOOLS_NAME` profiles also work with the SDK, for example
-`-DDMOD_TOOLS_NAME=arch/armv7/cortex-m7` with the corresponding compiler
-installed.
-
-### Using Make
-
-```bash
-make DMOD_MODE=DMOD_MODULE DMOD_DIR=/path/to/dmod
-```
-
-The legacy Make integration uses a source checkout. For a `dmod-dev` installation,
-use the CMake commands above.
-
-## Testing
-
-Tests are built automatically alongside the module (see `tests/`). Once built,
-run them with `ctest`:
-
-```bash
-cd build
-ctest --output-on-failure
-```
-
-`ctest` installs the test module's dependencies with `dmf-get` and then runs
-it through `dmod_loader`. To run it manually instead:
-
-```bash
-export DMOD_DMF_DIR=$(pwd)/build/dmf
-dmf-get install -d ${DMOD_DMF_DIR}/test_dmjson-local.dmd -y
-dmod_loader build/dmf/test_dmjson.dmf
-```
+Supports objects, arrays, strings, booleans, null and exact JSON number literals.
+The parser validates UTF-8, escape sequences, surrogate pairs and JSON grammar.
+JSON Pointer paths address nested data without allocating temporary lookup keys.
+All parsing, generation and destruction use iterative tree walks.
 
 ## Usage
 
-<TBD>
-
-This library module provides functions that can be used by other modules:
-
 ```c
+#include "dmod.h"
 #include "dmjson.h"
+
+int configure(void)
+{
+    dmjson_t json = dmjson_create();
+    if (!json) return DMJSON_ERR_MEMORY;
+    int result = dmjson_parse_string(json,
+        "{\"network\":{\"port\":8080},\"enabled\":true}");
+    if (result == DMJSON_OK) {
+        int32_t port = dmjson_get_int(json, "/network/port", 80);
+        Dmod_Printf("Port: %ld\n", (long)port);
+        result = dmjson_set_int(json, "/network/port", 9000);
+    }
+    if (result == DMJSON_OK) {
+        int size = dmjson_generate_string(json, NULL, 0);
+        if (size < 0) result = size;
+        else {
+            char *text = Dmod_Malloc((size_t)size);
+            if (!text) result = DMJSON_ERR_MEMORY;
+            else {
+                result = dmjson_generate_string(json, text, (size_t)size);
+                if (result > 0) { Dmod_Printf("%s\n", text); result = DMJSON_OK; }
+                Dmod_Free(text);
+            }
+        }
+    }
+    dmjson_destroy(json);
+    return result;
+}
 ```
 
-## API
+Link a consuming module with `dmod_link_modules(your_module dmjson@0.1)`.
+Use `""` for the document root, `/items/0` for an array element, and
+`/items/-` to append through a setter. Escape `~` as `~0` and `/` as `~1`
+in object keys. Setters require the parent to exist; `dmjson_set_json` can
+create entire nested objects or arrays at once.
 
-| Function | Description |
-|----------|-------------|
-| `dmjson_create()` | Create a new `dmjson_t` instance. |
-| `dmjson_destroy()` | Destroy an instance created by `_create()`. |
-| `dmjson_is_valid()` | Check whether a handle is a valid instance. |
+## Embedded resource use
 
-See [include/dmjson.h](include/dmjson.h) for the full
-declarations and [docs/api-reference.md](docs/api-reference.md) for the
-complete reference.
+- No recursion or variable-length arrays. The largest automatic buffer is
+  12 bytes; contexts, nodes and I/O buffers live on the SAL heap.
+- A node occupies 32 bytes on 32-bit ARM, plus exact-size allocations for
+  its key and string/number text (including terminators). Containers share
+  storage with scalar payloads. Lookups allocate nothing.
+- Parsing and generation are linear in input/output size. Array indexing and
+  object lookup scan siblings; there is no hash table or floating-point dependency.
+- Numbers retain their spelling and precision. `get_int` checks int32 range
+  without overflow; `get_number` returns the literal for application conversion.
+- Default limits are 64 container levels and 4096 nodes, enforced on parsing
+  and editing. These are ceilings, not preallocated capacities.
+- Failed parses/edits preserve the old document. This requires old and new
+  subtrees to coexist temporarily. File parsing also holds the source file in
+  a heap buffer; file generation uses a 128-byte heap buffer.
 
-## Documentation
+See [the API reference](docs/api-reference.md) for ownership, errors, complexity
+and limitations, and [validation notes](docs/validation.md) for measured results.
 
-See the `docs/` directory:
+## Building
 
-- **[api-reference.md](docs/api-reference.md)** - Complete API documentation
-
-View documentation using `dmf-man dmjson`.
-## Project Structure
-
+```bash
+cmake -S . -B build/host
+cmake --build build/host --parallel
+ctest --test-dir build/host --output-on-failure
 ```
+
+CMake uses an installed `dmod-dev` SDK when available, otherwise fetches DMOD
+`develop`. Select a local checkout with `-DDMOD_DIR=/path/to/dmod`, a custom SDK
+prefix with `-DCMAKE_PREFIX_PATH=/path/to/sdk`, or force fetching with
+`-DDMOD_USE_INSTALLED_SDK=OFF`. Source checkouts need initialized submodules.
+The Make integration also supports `make DMOD_MODE=DMOD_MODULE DMOD_DIR=/path/to/dmod`.
+
+For STM32F746G-DISCO modules:
+
+```bash
+cmake -S . -B build/arm -DDMOD_TOOLS_NAME=arch/armv7/cortex-m7
+cmake --build build/arm --parallel
+```
+
+Resource limits can be overridden when compiling the library, for example
+`-DCMAKE_C_FLAGS="-DDMJSON_MAX_DEPTH=16 -DDMJSON_MAX_NODES=256"`. Applications
+must use the same definitions if referring to the limit macros in the header.
+
+## Testing
+
+The standard build produces `dmjson.dmf` and `test_dmjson.dmf`. CTest uses
+`dmf-get` to install local dependencies and runs tests through `dmod_loader`.
+The same test module runs on STM32 through dmboot. The file round-trip test
+uses `/tmp/dmjson-roundtrip-test.json`; override `DMJSON_TEST_FILE_PATH` in
+test compiler flags if another writable directory is needed.
+
+The offline host harness instruments the implementation with ASan/UBSan,
+checks allocation failures/leaks and short file I/O, fuzzes 50,000 byte inputs,
+and compares over 5,000 cases against Python's JSON parser:
+
+```bash
+cmake -S . -B build/native -DDMJSON_NATIVE_TESTS_ONLY=ON
+cmake --build build/native --parallel
+ctest --test-dir build/native --output-on-failure
+```
+
+This harness supplies only a test SAL shim; production uses real DMOD dynamic
+APIs. Python 3 enables the differential suite. GCC/Clang sanitizers can be disabled
+with `-DDMJSON_SANITIZERS=OFF` if unavailable.
+
+## Project structure
+
+```text
 dmjson/
-├── docs/              # Documentation (markdown format)
-├── include/           # Public headers
-│   └── dmjson.h
-├── src/
-│   └── dmjson.c
-├── tests/
-│   ├── CMakeLists.txt
-│   └── dmjson_test.c
+├── include/dmjson.h       Public API
+├── src/dmjson.c           Parser, tree editing and generation
+├── tests/dmjson_test.c    Tests shared by loader, hardware and native harness
+├── tests/native/          SAL shim, sanitizers, fault injection and differential tests
+├── docs/                  API reference and validation notes
 ├── CMakeLists.txt
 ├── Makefile
 ├── dmjson.dmr
 └── manifest.dmm
 ```
 
-## Author
-
-Patryk Kubiak
-
-## License
-
-MIT
+Author: Patryk Kubiak. Licensed under [MIT](LICENSE).

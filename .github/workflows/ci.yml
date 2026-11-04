@@ -40,3 +40,33 @@ jobs:
           export DMOD_DMF_DIR=$(pwd)/build/dmf
           dmf-get install -d ${DMOD_DMF_DIR}/test_dmjson-local.dmd -y
           dmod_loader build/dmf/test_dmjson.dmf
+
+  native-sanitizers:
+    name: Native sanitizers and differential tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure offline tests
+        run: cmake -S . -B build/native -DDMJSON_NATIVE_TESTS_ONLY=ON
+      - name: Build
+        run: cmake --build build/native --parallel 2
+      - name: Test
+        run: ctest --test-dir build/native --output-on-failure
+
+  cortex-m7:
+    name: Build for Cortex-M7
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    container:
+      image: chocotechnologies/dmod:1.0.4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross compile library and tests
+        run: |
+          cmake -S . -B build/arm -DDMOD_TOOLS_NAME=arch/armv7/cortex-m7
+          cmake --build build/arm --parallel 2
+          test -f build/arm/dmf/dmjson.dmf
+          test -f build/arm/dmf/test_dmjson.dmf
