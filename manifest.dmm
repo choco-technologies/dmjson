@@ -1,0 +1,5 @@
+# Include dynamically generated versions list from latest release
+$include https://github.com/choco-technologies/dmjson/releases/download/vlatest/versions.dmm
+
+# Module entry with version placeholder - expanded by $version-available
+dmjson https://github.com/choco-technologies/dmjson/releases/download/v<version>/dmjson-v<version>-<arch_name>.zip
