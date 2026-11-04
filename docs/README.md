@@ -1,20 +1,7 @@
-# dmjson Documentation
+# dmjson documentation
 
-Welcome to the dmjson module documentation.
+- [API reference](api-reference.md): ownership, JSON Pointer, editing, errors and resource limits.
+- [Validation](validation.md): host, sanitizer and STM32F746G-DISCO checks.
+- [Usage and build instructions](../README.md).
 
-## Contents
-
-- **[api-reference.md](api-reference.md)** - Complete API documentation
-
-## Quick Reference
-
-```c
-#include "dmjson.h"
-```
-
-View documentation using `dmf-man`:
-
-```bash
-dmf-man dmjson          # Main documentation
-dmf-man dmjson api      # API reference
-```
+Documentation is also packaged for `dmf-man dmjson`.
